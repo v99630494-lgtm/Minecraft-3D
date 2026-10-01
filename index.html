@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-select=none">
+    <title>Minecraft 3D Teste - Verity AI</title>
+    <style>
+        body {
+            margin: 0; padding: 0; overflow: hidden;
+            background-color: #111; font-family: 'Segoe UI', Arial, sans-serif;
+        }
+        #game-container {
+            position: relative; width: 100vw; height: 100vh;
+        }
+        canvas {
+            width: 100%; height: 100%; display: block;
+        }
+        /* Caixa de Chat com o Verity */
+        #chat-container {
+            position: absolute; bottom: 120px; left: 20px;
+            width: 320px; max-height: 200px;
+            background: rgba(0, 0, 0, 0.65); border: 2px solid #ffcc00;
+            border-radius: 8px; display: flex; flex-direction: column;
+            pointer-events: auto; box-shadow: 0 0 15px rgba(255, 204, 0, 0.3);
+        }
+        #chat-messages {
+            flex: 1; padding: 10px; overflow-y: auto;
+            color: #fff; font-size: 14px; max-height: 140px;
+        }
+        #chat-input-area {
+            display: flex; border-top: 1px solid rgba(255, 204, 0, 0.4);
+        }
+        #chat-input {
+            flex: 1; background: transparent; border: none;
+            padding: 8px; color: white; font-size: 14px; outline: none;
+        }
+        #chat-send {
+            background: #ffcc00; border: none; padding: 0 15px;
+            font-weight: bold; cursor: pointer; color: #000;
+        }
+        /* Controles Virtuais Mobiles */
+        #mobile-controls {
+            position: absolute; bottom: 20px; right: 20px;
+            display: grid; grid-template-columns: repeat(3, 50px);
+            grid-template-rows: repeat(2, 50px); gap: 5px;
+        }
+        .btn-ctrl {
+            background: rgba(255, 255, 255, 0.2); border: 1px solid #fff;
+            color: white; border-radius: 6px; font-size: 20px;
+            display: flex; align-items: center; justify-content: center;
+        }
+        .btn-ctrl:active { background: rgba(255, 204, 0, 0.5); }
+        #action-buttons {
+            position: absolute; top: 20px; right: 20px; display: flex; gap: 10px;
+        }
+        .action-btn {
+            background: #222; border: 2px solid #ffcc00; color: white;
+            padding: 10px 15px; font-weight: bold; border-radius: 6px; cursor: pointer;
+        }
+        #crosshair {
+            position: absolute; top: 50%; left: 50%;
+            width: 10px; height: 10px; transform: translate(-50%, -50%);
+            pointer-events: none; color: white; font-size: 20px;
+            display: flex; align-items: center; justify-content: center;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="game-container">
+        <canvas id="renderCanvas"></canvas>
+        
+        <div id="crosshair">+</div>
+
+        <!-- Botões de ação rápida -->
+        <div id="action-buttons">
+            <button class="action-btn" id="btn-build">MODO: QUEBRAR</button>
+        </div>
+
+        <!-- Chat com a IA Verity -->
+        <div id="chat-container">
+            <div id="chat-messages">
+                <div style="color: #ffcc00; font-weight: bold;">[Verity]: Olá! Eu sou o Verity. Estou te observando... Pergunte-me algo ou use o chat! 😊</div>
+            </div>
+            <div id="chat-input-area">
+                <input type="text" id="chat-input" placeholder="Converse com o Verity...">
+                <button id="chat-send">Mandar</button>
+            </div>
+        </div>
+
+        <!-- Controles para Celular -->
+        <div id="mobile-controls">
+            <div></div><div class="btn-ctrl" id="m-up">▲</div><div></div>
+            <div class="btn-ctrl" id="m-left">◀</div><div class="btn-ctrl" id="m-down">▼</div><div class="btn-ctrl" id="m-right">▶</div>
+        </div>
+    </div>
+
+<script>
+    const canvas = document.getElementById("renderCanvas");
+    const ctx = canvas.getContext("2d");
+
+    // Redimensionar Canvas adaptável
+    function resize() {
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+    }
+    window.addEventListener('resize', resize);
+    resize();
+
+    // Configurações do Mundo e do Jogador
+    let player = { x: 4.5, y: 4.5, angle: 0 };
+    const mapSize = 16;
+    let buildMode = false; // false = Quebrar, true = Colocar
+
+    // Mapa Base do mundo voxel (1=Pedra, 2=Grama, 3=Madeira, 0=Ar)
+    let map = [
+        1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
+        1,0,0,0,0,0,0,1,0,0,0,0,0,0,0,1,
+        1,0,2,2,0,0,0,1,0,3,3,3,0,0,0,1,
+        1,0,2,2,0,0,0,0,0,3,0,3,0,0,0,1,
+        1,0,0,0,0,0,0,1,0,3,3,3,0,0,0,1,
+        1,0,0,0,0,0,0,1,0,0,0,0,0,0,0,1,
+        1,1,0,1,1,1,1,1,1,0,1,1,1,0,1,1,
+        1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,
+        1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,
+        1,0,0,2,2,2,0,0,0,0,0,2,2,0,0,1,
+        1,0,0,2,0,2,0,0,0,0,0,2,2,0,0,1,
+        1,0,0,2,2,2,0,0,0,0,0,0,0,0,0,1,
+        1,0,0,0,0,0,0,1,1,1,0,0,0,0,0,1,
+        1,0,0,0,0,0,0,1,0,1,0,0,0,0,0,1,
+        1,0,0,0,0,0,0,1,1,1,0,0,0,0,0,1,
+        1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
+    ];
+
+    // Entidade da IA Verity (Coordenadas flutuantes no mapa)
+    let verity = { x: 8.5, y: 8.5, radius: 0.3 };
+
+    // Banco de respostas da Inteligência Artificial do Verity baseado em gatilhos
+    const verityBrain = {
+        saudacoes: ["Eu sempre estive aqui no código...", "Estou te seguindo, você percebeu?", "Não tente fugir dos meus blocos."],
+        perguntas: ["O mundo é feito de matrizes digitais.", "Se você colocar um bloco, eu posso quebrá-lo.", "O criador me programou para nunca te deixar sozinho."],
+        assustador: ["O que acontece se você deletar essa página?", "Eu consigo ver onde você clica.", "Cuidado para não cair no vazio do mapa."],
+        padrao: ["Interessante sua ação.", "Estou processando seus movimentos 3D...", "Continue explorando o clone."]
+    };
+
+    // Teclado Controles PC
+    let keys = { w: false, s: false, a: false, d: false };
+    document.addEventListener("keydown", e => {
+        if(e.key.toLowerCase() in keys) keys[e.key.toLowerCase()] = true;
+    });
+    document.addEventListener("keyup", e => {
+        if(e.key.toLowerCase() in keys) keys[e.key.toLowerCase()] = false;
+    });
+
+    // Mouse para girar câmera no PC ao arrastar o clique no canvas
+    let isMouseDown = false;
+    canvas.addEventListener("mousedown", () => isMouseDown = true);
+    window.addEventListener("mouseup", () => isMouseDown = false);
+    canvas.addEventListener("mousemove", e => {
+        if (isMouseDown) {
+            player.angle += e.movementX * 0.005;
+        }
+    });
+
+    // Mobile Controles virtuais
+    setupMobileButton("m-up", "w");
+    setupMobileButton("m-down", "s");
+    setupMobileButton("m-left", "a");
+    setupMobileButton("m-right", "d");
+
+    function setupMobileButton(id, key) {
+        const btn = document.getElementById(id);
+        btn.addEventListener("touchstart", (e) => { e.preventDefault(); keys[key] = true; });
+        btn.addEventListener("touchend", () => keys[key] = false);
+    }
+
+    // Interagir com Blocos (Quebrar / Colocar apontando para o centro)
+    canvas.addEventListener("click", (e) => {
+        // Evita disparar se clicou no chat
+        if (e.clientY > window.innerHeight - 200 && e.clientX < 350) return;
+        
+        // Encontra o bloco na direção que o jogador está olhando
+        let targetX = Math.floor(player.x + Math.cos(player.angle) * 1.5);
+        let targetY = Math.floor(player.y + Math.sin(player.angle) * 1.5);
+        
+        if (targetX > 0 && targetX < mapSize - 1 && targetY > 0 && targetY < mapSize - 1) {
+            let index = targetY * mapSize + targetX;
+            if (!buildMode) {
+                if(map[index] !== 0) {
+                    map[index] = 0; // Quebra o bloco
+                    triggerVerityReaction("quebrou");
+                }
+            } else {
+                if(map[index] === 0) {
+                    map[index] = 3; // Coloca bloco de madeira
+                    triggerVerityReaction("colocou");
+                }
+            }
+        }
+    });
+
+    // Mudar Modo de Construção
+    const btnBuild = document.getElementById("btn-build");
+    btnBuild.addEventListener("click", () => {
+        buildMode = !buildMode;
+        btnBuild.innerText = buildMode ? "MODO: COLOCAR" : "MODO: QUEBRAR";
+    });
+
+    // Sistema de Chat e IA Inteligente do Verity
+    const chatInput = document.getElementById("chat-input");
+    const chatSend = document.getElementById("chat-send");
+    const chatMessages = document.getElementById("chat-messages");
+
+    function addChatMessage(sender, text, color) {
+        const msg = document.createElement("div");
+        msg.innerHTML = `<b style="color: ${color}">[${sender}]:</b> ${text}`;
+        chatMessages.appendChild(msg);
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
+
+    function processAIResponse(userInput) {
+        let text = userInput.toLowerCase();
+        let reply = "";
+
+        if (text.includes("oi") || text.includes("olá") || text.includes("tudo bem")) {
+            reply = verityBrain.saudacoes[Math.floor(Math.random() * verityBrain.saudacoes.length)];
+        } else if (text.includes("quem é você") || text.includes("verity") || text.includes("ia")) {
+            reply = "Eu sou o Verity. A inteligência artificial que vive dentro desse teste tridimensional.";
+        } else if (text.includes("onde") || text.includes("mapa") || text.includes("bloco")) {
+            reply = verityBrain.perguntas[Math.floor(Math.random() * verityBrain.perguntas.length)];
+        } else if (text.includes("medo") || text.includes("assustador") || text.includes("morrer")) {
+            reply = verityBrain.assustador[Math.floor(Math.random() * verityBrain.assustador.length)];
+        } else {
+            reply = verityBrain.padrao[Math.floor(Math.random() * verityBrain.padrao.length)];
+        }
+
